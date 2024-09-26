@@ -4,7 +4,6 @@ from .data import Data
 from .. import config
 from .. import utils
 
-
 class DataSet(Data):
     """Fitting Data set.
 
@@ -39,7 +38,9 @@ class DataSet(Data):
             self.test_y = test_data[:, col_y].astype(config.real(np))
         else:
             raise ValueError("No training data.")
-
+        
+        self.train_sampler = BatchSampler(len(self.train_y), shuffle = True)
+        
         self.scaler_x = None
         if standardize:
             self.scaler_x, self.train_x, self.test_x = utils.standardize(
@@ -50,7 +51,13 @@ class DataSet(Data):
         return loss_fn(targets, outputs)
 
     def train_next_batch(self, batch_size=None):
-        return self.train_x, self.train_y
+        if batch_size is None:
+            return self.train_x, self.train_y
+        indices = self.train_sampler.get_next(batch_size)
+        return (
+            self.train_x[indices],
+            self.train_y[indices],
+        )
 
     def test(self):
         return self.test_x, self.test_y
