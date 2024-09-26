@@ -592,3 +592,127 @@ class PDEPointResampler(Callback):
             raise ValueError(
                 "`num_bcs` changed! Please update the loss function by `model.compile`."
             )
+
+class TrainingRecord(Callback):
+
+    def __init__(self, period=1000, plot = True):
+        super().__init__()
+        self.t_start = None
+        self.period = period
+        self.epochs_since_last_1 = 0
+        self.epochs_since_last_2 = 0
+        self.train_history = {}
+        self.train_history["epoch"] = []
+        self.train_history["lr"] = []
+        self.train_history["train_loss"] = []
+        self.train_history["test_loss"] = []
+        self.train_history["time"] = []
+        self.plot = plot
+        
+    def on_train_begin(self):
+        if self.t_start is None:
+            self.t_start = time.time()
+            
+        epoch = self.model.train_state.epoch
+        train_loss = self.model.train_state.loss_train
+        val_loss = self.model.train_state.loss_test
+        epoch = self.model.train_state.epoch
+        lr = self.model.opt.state_dict()["param_groups"][0]["lr"]
+        self.train_history["epoch"].append(epoch)
+        self.train_history["lr"].append(lr)
+        self.train_history["train_loss"].append(train_loss)
+        self.train_history["test_loss"].append(val_loss)
+        self.train_history["time"].append(time.time() - self.t_start)
+
+    def on_epoch_begin(self):
+        # print(self.model.train_state.loss_train)
+        self.epochs_since_last_1 += 1
+        if (self.epochs_since_last_1 >= self.period) or (len(self.train_history["epoch"])==0):
+            self.epochs_since_last_1 = 0
+            
+            epoch = self.model.train_state.epoch
+            lr = self.model.opt.state_dict()["param_groups"][0]["lr"]
+            self.train_history["epoch"].append(epoch + 1)
+            self.train_history["lr"].append(lr)
+
+    def on_epoch_end(self):        
+        self.epochs_since_last_2 += 1
+        if (self.epochs_since_last_2 >= self.period) or (len(self.train_history["train_loss"])==0):
+            self.epochs_since_last_2 = 0
+            
+            train_loss = self.model.train_state.loss_train
+            val_loss = self.model.train_state.loss_test
+            self.train_history["train_loss"].append(train_loss)
+            self.train_history["test_loss"].append(val_loss)
+            self.train_history["time"].append(time.time() - self.t_start)
+
+    def on_train_end(self):
+        self.plot_loss()
+                
+    def plot_loss(self, time_plot = True):
+        train_history = self.train_history
+        
+        epochs = np.array(train_history['epoch'])
+        train_loss = np.array(train_history['train_loss'])  # Shape (N, 4)
+        test_loss = np.array(train_history['test_loss'])
+        lr = np.array(train_history['lr'])
+        time = np.array(train_history['time'])
+
+        num_losses = train_loss.shape[1]  # Number of different losses
+
+        fig, axes = plt.subplots(num_losses, 1, figsize=(6, 4 * num_losses))
+        
+        for i in range(num_losses):
+            train_loss_i = train_loss[:, i]
+            test_loss_i = test_loss[:, i]
+
+            train_changes = np.diff(train_loss_i) != 0
+            train_indices = np.where(np.insert(train_changes, 0, True))[0]
+            epochs_train = epochs[train_indices]
+            train_loss_i = train_loss_i[train_indices]
+
+            test_changes = np.diff(test_loss_i) != 0
+            test_indices = np.where(np.insert(test_changes, 0, True))[0]
+            epochs_test = epochs[test_indices]
+            test_loss_i = test_loss_i[test_indices]
+
+            ax = axes[i] if num_losses > 1 else axes  # Handle single subplot case
+            if num_losses > 1:
+                ax.plot(epochs_train, train_loss_i, label=f'Train Loss {i}')
+                ax.plot(epochs_test, test_loss_i, label=f'Test Loss {i}')
+
+            else:
+                ax.plot(epochs_train, train_loss_i, label=f'Train Loss')
+                ax.plot(epochs_test, test_loss_i, label=f'Test Loss')
+                
+                N = len(time[train_indices])
+                indices = [round((N-1) * i / 4) for i in range(5)]
+                    
+            if time_plot:
+                for epoch, timestep in zip(epochs_train[indices], time[train_indices][indices]):
+                    ax.axvline(x = epoch, c = 'k', linestyle = '--', linewidth = 0.5)   
+                    plt.text(epoch + 0.01 * epochs_train[indices].max(), 0.5 * train_loss_i.max(), f"{round(timestep,2)} s", rotation=90)
+                    
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('Loss')
+            ax.set_yscale('log')
+            ax.legend()
+            ax.grid()
+
+        plt.tight_layout()
+        plt.show()
+        
+    def plot_lr(self):
+        train_history = self.train_history
+        epochs = np.array(train_history['epoch'])
+        lr = np.array(train_history['lr'])
+
+
+        plt.figure(figsize=(6, 4))
+        plt.plot(epochs, lr, label='Learning Rate')
+        plt.xlabel('Epoch')
+        plt.ylabel('Learning Rate')
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
