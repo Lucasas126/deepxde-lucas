@@ -8,6 +8,8 @@ from . import gradients as grad
 from . import utils
 from .backend import backend_name, jax, paddle, tf, torch
 
+import os
+from torch.utils.tensorboard import SummaryWriter
 
 class Callback:
     """Callback base class.
@@ -716,3 +718,51 @@ class TrainingRecord(Callback):
         plt.grid()
         plt.tight_layout()
         plt.show()
+
+
+
+class ErrorStdout(Callback):
+
+    def __init__(self, period):
+        super().__init__()
+        self.period = period
+        self.start_time = time.time()
+        
+    def on_epoch_end(self):        
+            
+        if self.model.train_state.epoch % self.period == 0:
+            epoch = self.model.train_state.epoch
+            train_loss = self.model.train_state.loss_train
+            val_loss = self.model.train_state.loss_test
+
+            formatted_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+            
+            print(f"epoch {epoch}:")
+            print(f"{formatted_time} train_mse={train_loss[0]}")
+            print(f"{formatted_time} val_mse={val_loss[0]}")
+
+    def on_train_end(self):
+        formatted_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+        print(f"{formatted_time} time={time.time() - self.start_time}")
+        self.writer.close()
+
+
+class TFEventWriter(Callback):
+
+    def __init__(self, folder, period = 1000):
+        super().__init__()
+        self.period = period
+        self.start_time = time.time()
+        self.run_folder = folder
+        os.makedirs(self.run_folder, exist_ok = True)
+        exp_num = len(os.listdir(self.run_folder))
+        self.writer = SummaryWriter(log_dir=self.run_folder)
+        
+    def on_epoch_end(self):        
+            
+        if self.model.train_state.epoch % self.period == 0:
+            epoch = self.model.train_state.epoch
+            train_loss = self.model.train_state.loss_train
+            val_loss = self.model.train_state.loss_test
+            self.writer.add_scalar('train_loss', train_loss, epoch)
+            self.writer.add_scalar('val_loss', val_loss, epoch)
